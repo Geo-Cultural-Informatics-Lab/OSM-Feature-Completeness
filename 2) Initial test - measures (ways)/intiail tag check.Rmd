@@ -1,0 +1,30 @@
+---
+title: "Roads - data completness measure"
+author: "Eliya Levin"
+date: "2025-05-15"
+output: html_document
+---
+
+
+### **Basic setup**
+
+```{r setup, include=FALSE}
+
+rm(list=ls())         # clean work environment
+gc()                  # clean memory
+options(scipen=999)   # show numbers in normal format
+options(width = 60)
+
+
+# setting work directory of all files:
+knitr::opts_knit$set(root.dir = "C:/DataSets/52414_home_exam")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Libraries
+
+```{r}
+install.packages("sf")
+library(sf)
+```
+
