@@ -531,3 +531,161 @@ def generate_measure_sample_plot(df_list,
 
     # Return the figure to a variable
     return fig
+
+
+# Assess the feature completness measure of some polygon using cumulative feature counts and lengths/areas
+def assess_feature_completeness(count_gdf, size_gdf, alpha=0.1, time_thresh=2, saturation_thresh=1.5, abs_thresh=1.5, return_full=False):
+    '''
+    Receives two GeoDataFrames (assumes identical timestamps and geometry):
+    1) A cumulative count of added features by timestamps
+    2) A cumulative value of all features by timestamps
+
+    The function converts timestamp to actual datetime format, transforms the values to a mixed normalized percentage of added value (length / area) per each added unit.
+    After that, the function applies the following statistical test:
+    
+    `If all cumulative change percentage is below some alpha (default: 10%) for a stable time period (default: 2 years) without a large absolute addition (default: 150% more than saturation point), the data is considered saturated.`
+    
+    For supposedly saturated data, the function computes the saturation point (1st month in stable period) and calculates cumulative percentage up to that point.
+
+    The test is verified using 3 conditions:
+    (1) No meaningfull relative addition (percentage<`alpha`) for at least `time_thresh` years.
+    (2) No absolute addition (count<`abs_thresh`) for at least `time_thresh` years.
+    (3) The absolute or relative addition change percentage since the saturation point is less than `saturation_thresh`.
+
+    In all cases, the output is a DataFrame:
+    * If not saturated --> the merged DataFrame, with updated timstamps and calculations.
+    * If saturated --> can either return only values up to the saturation point + maximum value (default) or return the entire data with reference to the saturation point.
+    
+    Dependencies:
+    * pandas as pd
+    '''
+    #---------------------------------------------------#
+    #                   Data Wrangle                    #
+    #---------------------------------------------------#
+
+    # Fix timestamp
+    count_gdf['timestamp'] = pd.to_datetime(count_gdf['timestamp'])
+    size_gdf['timestamp'] = pd.to_datetime(size_gdf['timestamp'])
+
+    # Sort both DataFrames by timestamp and reset index for proper alignment
+    count_gdf = count_gdf.sort_values('timestamp').reset_index(drop=True)
+    size_gdf = size_gdf.sort_values('timestamp').reset_index(drop=True)
+
+    # Merge Dataframes
+    gdf = count_gdf.copy().rename(columns={'value' : 'count'}) # Copy DF and rename count column
+    gdf['size'] = size_gdf['value'] # Append size column
+
+    #---------------------------------------------------#
+    #                 Statistical Test                  #
+    #---------------------------------------------------#
+    
+    # Transform values
+    gdf['cumulative_percentage'] = gdf['size'] / gdf['count']
+    gdf['cumulative_percentage'] = gdf['cumulative_percentage'].fillna(0) # Deal with periods without addition
+    gdf['normalized_cum_per'] = gdf['cumulative_percentage'] / gdf['cumulative_percentage'].max()
+
+    # Adjust alpha value for small to large mapping case
+    if gdf['cumulative_percentage'].idxmax() >= (len(gdf) * 0.75):
+        alpha = 1 - alpha
+
+    # Apply completeness test for level alpha
+    gdf['test'] = (gdf['normalized_cum_per'] < alpha) # Boolean term for each date in data
+
+    #---------------------------------------------------#
+    #                   Condititon 1                    #
+    #---------------------------------------------------#
+
+    # Iterate backwards in data to find stability period
+    i = -1 # Running index (from end)
+    test = gdf['test'].iat[i] # Running boolean test answer (from end)
+    while test:
+        try: # Update index
+            i -= 1
+            test = gdf['test'].iat[i]
+        
+        except IndexError: # Break loop if at first index
+            break
+    
+    if i == -1:
+        # Deal with last value percentage being greater than alpha (i.e. no stable period)
+        print('Data incomplete: no stable period')
+        return gdf
+
+    stable = gdf.iloc[i+1:].copy() # Extract stable period
+
+    ## If stable period shorter than given time threshold --> data is incomplete
+    if (stable['timestamp'].max() - stable['timestamp'].min()) < pd.Timedelta(days=time_thresh*365):
+        print('Data incomplete: stable period shorter than threshold')
+        return gdf
+    
+    #---------------------------------------------------#
+    #             Condititon 3 - 1st phase              #
+    #---------------------------------------------------#
+
+    else:
+        # Extract saturated value
+        saturation_point = stable.iloc[0]
+
+        # Calculate saturation levels
+        gdf['percentage_until_saturation'] = gdf['count'] / saturation_point['count']
+        
+         # Extract emprical maximal value
+        real_max = gdf.iloc[-1]
+      
+
+        # Check first if data converged. If not, verify if almost converged after one-time event (if exists).
+        # Test condition 3 for relative change:
+        if (real_max['percentage_until_saturation'] >= saturation_thresh):
+
+    #---------------------------------------------------#
+    #                   Condititon 2                    #
+    #---------------------------------------------------#
+
+            stable['count_change'] = stable['count'] / stable['count'].max() # Calculate absolute change
+            if (stable['count_change'] >= abs_thresh).any():
+                # There exists some one-time addition event after saturation
+                abs_add_index = stable['count_change'].idxmax()
+                if (stable['timestamp'].max() - stable.loc[abs_add_index, 'timestamp']) < pd.Timedelta(days=time_thresh*365):
+                    # No stable period since one-time addition event 
+                    print('Data incomplete: no stable absolute addition period')
+    
+    #---------------------------------------------------#
+    #             Condititon 3 - 2nd phase              #
+    #---------------------------------------------------#
+
+                # Redefine saturation point and levels for one-time addition event
+                saturation_point = stable.iloc[abs_add_index]
+                gdf['percentage_until_saturation'] = gdf['count'] / saturation_point['count']
+                real_max = gdf.iloc[-1]
+                
+                # Test condition 3 for absoulte change:
+                if (real_max['percentage_until_saturation'] >= saturation_thresh):
+                    print('Data incomplete: stable absolute addition larger than threshold')
+                    return gdf
+            
+            else:
+                print('Data incomplete: stable relative addition larger than threshold')
+                return gdf
+    
+    #---------------------------------------------------#
+    #             Output Saturated Results              #
+    #---------------------------------------------------#
+
+        # Extract 80% saturation timestamp
+        saturated_time = gdf[gdf['percentage_until_saturation'] >= 0.8]['timestamp'].iloc[0]
+        print(f'Date complete: Polygon 80% saturated at {saturated_time}')
+
+        ### Return entire gdf if requested
+        if return_full:
+            return gdf
+        
+        ### Return compact gdf (default)
+        else:
+            # Filter data until saturation
+            saturated = gdf.iloc[:i+1].copy()
+        
+            # Concatenate empirical maximal value
+            saturated = pd.concat([saturated,
+                                   pd.DataFrame([real_max])],
+                                   ignore_index=True)       
+            return saturated
