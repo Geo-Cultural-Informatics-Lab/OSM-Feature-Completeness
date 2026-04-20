@@ -1,8 +1,8 @@
-Feature Completeness Assessment
+# **Feature Completeness Assessment**
 
 The `assess_feature_completeness` method is designed to evaluate whether a given region’s dataset (e.g., roads or buildings in OSM) can be considered complete.
 
-Core Idea
+## Core Idea
 
 The method analyzes the time series of the average feature size, defined as the ratio between cumulative size (e.g., length or area) and cumulative feature count.
 
@@ -14,7 +14,7 @@ As a result, the average size per feature is expected to decrease over time and 
 
 To capture this behavior, the method relies on cumulative values, which smooth short-term fluctuations and emphasize long-term trends.
 
-Mathematical Definition
+## Mathematical Definition
 
 For each timestamp t in [1, T] (monthly intervals):
 
@@ -28,7 +28,7 @@ Where:
 - cc_t represents the average size per feature
 - ccp_t is the normalized average size (scaled to [0,1])
 
-Detecting Completeness
+## Detecting Completeness
 
 A dataset is considered complete if a stable saturation period can be identified. This period represents a stage where additional mapping does not significantly change the structure of the data.
 
@@ -56,7 +56,7 @@ count_T / count_sat < saturation_threshold
 
 This prevents cases where the data appears locally stable but continues to grow significantly afterward.
 
-Output
+## Output
 
 If all conditions are satisfied, the method:
 - Identifies a saturation point
@@ -67,6 +67,6 @@ If all conditions are satisfied, the method:
 
 If the conditions are not met, the dataset is classified as incomplete, and the full time series is returned for inspection.
 
-Summary
+## Summary
 
 The method detects completeness by identifying when the average feature size stabilizes over time, with no significant structural or volumetric changes afterward.
