@@ -17,6 +17,7 @@ To capture this behavior, the method relies on cumulative values, which smooth s
 ## Mathematical Definition
 
 For each timestamp t in [1, T] (monthly intervals):
+
 $$
 cc_t = size_t / count_t
 $$
@@ -29,7 +30,7 @@ Where:
 - $size_t$ is the cumulative size (length or area) at time t
 - $count_t$ is the cumulative number of features at time t
 - $cc_t$ represents the average size per feature
-- $ccp_t$ is the normalized average size (scaled to [0,1])
+- $ccp_t$ is the normalized average size (scaled to $[0,1]$)
 
 ## Detecting Completeness
 
@@ -39,9 +40,11 @@ The following conditions are applied:
 
 1) Low Relative Change  
 The normalized average size must remain below a threshold:
+
 $$
 ccp_t < \alpha  
 $$
+
 (Default: $\alpha = 0.1$)
 
 3) Temporal Stability  
