@@ -20,6 +20,7 @@ For each timestamp t in [1, T] (monthly intervals):
 $$
 cc_t = size_t / count_t
 $$
+
 $$
 ccp_t = cc_t / max(cc_t)
 $$
