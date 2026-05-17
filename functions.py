@@ -125,7 +125,72 @@ def get_count(bounds, filter="type:way and highway=*", time="2008-01-01/2025-01-
     else:
         print(f"Error {response.status_code}: {response.text}")
         return None
+
+# API count building number by geometry
+def post_count(geom, filter="type:way and building=*", time="2008-01-01/2025-01-01/P1M", path=None, filename=None):
+    '''
+    A function that extracts cummulative number of buildings (building tags) in a specific geometry from OSM using the Ohsome API, and returns all data in a json format.
+
+    The function recieves 3 strings:
+        1) **geom** - simplified geometry parameter
+        2) **filter** - filter parameter, defaultly extracting all building tags from way objects
+        3) **time** - ISO-8621 timestamp. Defaultly extracting all data between 01/2008-01/2025 in monthly intervals
     
+    If the user wants to save the data, there are two additional parameters:
+        1) **path** - string to path on computer
+        2) **filename** - string with requested filename
+
+    Dependencies:
+    * requests
+    * json
+    * os
+    * pandas as pd
+    '''
+    # Ensuring needed libraries are imported
+    import requests
+    import json
+    import os
+    import pandas as pd
+
+    url = "https://api.ohsome.org/v1/elements/count/groupBy/boundary" # URL for API
+
+    # Defining parameters for extract
+    params = {
+        "bpolys": json.dumps({
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": {"id": "region"},
+                "geometry": geom
+            }]
+        }),
+        "filter": filter,
+        "time": time,
+        "format": "json"
+    }
+
+
+    response = requests.post(url, data=params) # Creating request
+
+    if response.status_code == 200:
+        print("Succesfully extracted counts")
+        data = response.json() # data extract
+
+        # Saving extract to file if requested:
+        if path and filename:
+            os.makedirs(path, exist_ok=True)  # create directory if it doesn't exist
+            file_path = os.path.join(path, filename)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"Data saved to {file_path}")
+
+        return pd.json_normalize(data['groupByResult'][0]['result'])
+    
+    # Print errors if recieved for debugging 
+    else:
+        print(f"Error {response.status_code}: {response.text}")
+        return None
+
 # API get bulding area function
 def get_area(bounds, filter="type:way and building=*", time="2008-01-01/2025-01-01/P1M", path=None, filename=None):
     '''
@@ -177,6 +242,70 @@ def get_area(bounds, filter="type:way and building=*", time="2008-01-01/2025-01-
             print(f"Data saved to {file_path}")
 
         return pd.json_normalize(data['result'])
+    
+    # Print errors if recieved for debugging 
+    else:
+        print(f"Error {response.status_code}: {response.text}")
+        return None
+
+# API post bulding area function by geometry
+def post_area(geom, filter="type:way and building=*", time="2008-01-01/2025-01-01/P1M", path=None, filename=None):
+    '''
+    A function that extracts aggregated area of buildings (highway tags) in a specific geometry from OSM using the Ohsome API, and returns all data in a json format.
+
+    The function recieves 3 strings:
+        1) **geom** - simplified geometry parameter
+        2) **filter** - filter parameter, defaultly extracting all highway tags from way objects
+        3) **time** - ISO-8621 timestamp. Defaultly extracting all data between 01/2008-01/2025 in monthly intervals
+    
+    If the user wants to save the data, there are two additional parameters:
+        1) **path** - string to path on computer
+        2) **filename** - string with requested filename
+    
+    Dependencies:
+    * requests
+    * json
+    * os
+    * pandas as pd
+    '''
+    # Ensuring needed libraries are imported
+    import requests
+    import json
+    import os
+    import pandas as pd
+
+    url = "https://api.ohsome.org/v1/elements/area/groupBy/boundary" # URL for API
+
+    # Defining parameters for extract
+    params = {
+        "bpolys": json.dumps({
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": {"id": "region"},
+                "geometry": geom
+            }]
+        }),
+        "filter": filter,
+        "time": time,
+        "format": "json"
+    }
+    
+    response = requests.post(url, data=params) # Creating request
+
+    if response.status_code == 200:
+        print("Succesfully extracted areas")
+        data = response.json() # data extract
+
+        # Saving extract to file if requested:
+        if path and filename:
+            os.makedirs(path, exist_ok=True)  # create directory if it doesn't exist
+            file_path = os.path.join(path, filename)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"Data saved to {file_path}")
+
+        return pd.json_normalize(data['groupByResult'][0]['result'])
     
     # Print errors if recieved for debugging 
     else:
@@ -608,15 +737,23 @@ def assess_feature_completeness(count_gdf, size_gdf, alpha=0.1, time_thresh=2, s
     
     if i == -1:
         # Deal with last value percentage being greater than alpha (i.e. no stable period)
-        print('Data incomplete: no stable period')
-        return gdf
+        return {
+            'result': gdf,
+            'status': 'incomplete',
+            'saturation_point': None,
+            'incompletion_reason': 'no stable period'
+            }
 
     stable = gdf.iloc[i+1:].copy() # Extract stable period
 
     ## If stable period shorter than given time threshold --> data is incomplete
     if (stable['timestamp'].max() - stable['timestamp'].min()) < pd.Timedelta(days=time_thresh*365):
-        print('Data incomplete: stable period shorter than threshold')
-        return gdf
+        return {
+            'result': gdf,
+            'status': 'incomplete',
+            'saturation_point': None,
+            'incompletion_reason': 'stable period shorter than threshold'
+            }
     
     #---------------------------------------------------#
     #             Condititon 3 - 1st phase              #
@@ -660,12 +797,21 @@ def assess_feature_completeness(count_gdf, size_gdf, alpha=0.1, time_thresh=2, s
                 
                 # Test condition 3 for absoulte change:
                 if (real_max['percentage_until_saturation'] >= saturation_thresh):
-                    print('Data incomplete: stable absolute addition larger than threshold')
-                    return gdf
+                    return {
+                        'result': gdf,
+                        'status': 'incomplete',
+                        'saturation_point': None,
+                        'incompletion_reason': 'stable absolute addition larger than threshold'
+                        }
+
             
             else:
-                print('Data incomplete: stable relative addition larger than threshold')
-                return gdf
+                return {
+                        'result': gdf,
+                        'status': 'incomplete',
+                        'saturation_point': None,
+                        'incompletion_reason': 'stable relative addition larger than threshold'
+                        }
     
     #---------------------------------------------------#
     #             Output Saturated Results              #
@@ -673,11 +819,15 @@ def assess_feature_completeness(count_gdf, size_gdf, alpha=0.1, time_thresh=2, s
 
         # Extract 80% saturation timestamp
         saturated_time = gdf[gdf['percentage_until_saturation'] >= 0.8]['timestamp'].iloc[0]
-        print(f'Date complete: Polygon 80% saturated at {saturated_time}')
 
         ### Return entire gdf if requested
         if return_full:
-            return gdf
+            return {
+                    'result': gdf,
+                    'status': 'complete',
+                    'saturation_point': saturated_time,
+                    'incompletion_reason': None
+                    }
         
         ### Return compact gdf (default)
         else:
@@ -688,4 +838,9 @@ def assess_feature_completeness(count_gdf, size_gdf, alpha=0.1, time_thresh=2, s
             saturated = pd.concat([saturated,
                                    pd.DataFrame([real_max])],
                                    ignore_index=True)       
-            return saturated
+            return {
+                    'result': saturated,
+                    'status': 'complete',
+                    'saturation_point': saturated_time,
+                    'incompletion_reason': None
+                    }
