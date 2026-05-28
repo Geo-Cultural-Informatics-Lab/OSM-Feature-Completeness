@@ -784,7 +784,12 @@ def assess_feature_completeness(count_gdf, size_gdf, alpha=0.1, time_thresh=2, s
                 abs_add_index = stable['count_change'].idxmax()
                 if (stable['timestamp'].max() - stable.loc[abs_add_index, 'timestamp']) < pd.Timedelta(days=time_thresh*365):
                     # No stable period since one-time addition event 
-                    print('Data incomplete: no stable absolute addition period')
+                    return {
+                        'result': gdf,
+                        'status': 'incomplete',
+                        'saturation_point': None,
+                        'incompletion_reason': 'stable absolute addition period shorter than threshold'
+                        }
     
     #---------------------------------------------------#
     #             Condititon 3 - 2nd phase              #
